@@ -27,4 +27,5 @@ if __name__ == "__main__":
     hostname = "127.0.0.1"
     port = 12345
     data = bytes.fromhex("00000002DEADBEEF")
-    send_bytes(hostname, port, data)
+    # send_bytes(hostname, port, data)
+    send_bytes(hostname, port, b'0025HelloHelloHelloHelloHello')

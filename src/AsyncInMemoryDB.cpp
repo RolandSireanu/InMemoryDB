@@ -68,22 +68,24 @@ public:
         }); 
     }
 
-    void HandleConnection() 
+    void ReadMsgLength() 
     {
-        std::cout << "Connection::HandleConnection\n";
-        mSocket->async_read_some(boost::asio::buffer(mBuffer, 4), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
+        constexpr int lMsgHeader {4};
+        std::cout << "Connection::ReadMsgLength\n";
+        mSocket->async_read_some(boost::asio::buffer(mBuffer, lMsgHeader), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
             if(!aError)
             {
-                // Merge 4 bytes into a 32-bit integer
-                me->mReadBufferSize = 0;
-                for (int i = 0; i < 4; ++i) 
-                {
-                    me->mReadBufferSize = (me->mReadBufferSize << 8) | static_cast<unsigned char>(me->mBuffer[i]);
-                }
-                std::cout << "Read buffer size: " << std::bitset<32>(me->mReadBufferSize) << "\n";
-                std::cout << "Read buffer size: " << me->mReadBufferSize << "\n";   
+                uint32_t lReadBufferSize = me->ConvertTo<int32_t>(me->mBuffer);
+                // Merge 4 bytes into a 32-bit integer                
+                // for (int i = 0; i < 4; ++i) 
+                // {
+                //     std::cout << "Byte " << i << ": 0x" << std::hex << std::uppercase << static_cast<int>(static_cast<unsigned char>(me->mBuffer[i])) << std::endl;
+                //     me->mReadBufferSize = (me->mReadBufferSize << 8) | static_cast<unsigned char>(me->mBuffer[i]);
+                // }
+                std::cout << "Read buffer size: " << std::bitset<32>(lReadBufferSize) << "\n";
+                std::cout << "Read buffer size: " << lReadBufferSize << "\n";   
 
-                me->ReadNoBytes(me->mReadBufferSize);
+                me->ReadNoBytes(lReadBufferSize);
             }
             else
             {
@@ -104,6 +106,8 @@ public:
                 {
                     std::cout << "Byte " << i << ": 0x" << std::hex << std::uppercase << static_cast<int>(static_cast<unsigned char>(me->mReadBuffer[i])) << std::endl;
                 }
+            
+                std::cout << "Message from client : " << std::string(me->mReadBuffer.begin(), me->mReadBuffer.end()) << "\n";
 
                 me->Response<ResponseType::OK>();
             }
@@ -119,13 +123,32 @@ public:
 
 
 private:
+
+    // template <class T>
+    // T ConvTo(const std::string& argInString)
+    // {
+    //     T lOutValue;
+    //     std::stringstream lStringStream(argInString);
+    //     lStringStream >> lOutValue;
+    //     return lOutValue;
+    // }
+
+    template<typename T>
+    T ConvertTo(const std::string& argInputString)
+    {
+        T temp{};
+        std::stringstream lStringStream(argInputString);
+        lStringStream >> temp;
+        return temp;
+    }
+
+
     const std::string lRespOK = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
     const std::string lRespNOK = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
     boost::asio::io_context& mIOContext;
     std::shared_ptr<tcp::socket> mSocket;
     boost::asio::streambuf mStreamBuffer;
     char mBuffer[4];
-    uint32_t mReadBufferSize;
     std::vector<char> mReadBuffer;
 };
 
@@ -161,7 +184,7 @@ private:
             if(!aError) 
             {
                 // Handle the connection                
-                lConnection->HandleConnection();
+                lConnection->ReadMsgLength();                
             }
             else
             {
