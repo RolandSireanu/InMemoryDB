@@ -47,22 +47,18 @@ public:
 
     void ReadMsgLength() 
     {
-        
         std::cout << "Connection::ReadMsgLength\n";
-        mSocket->async_read_some(boost::asio::buffer(mBuffer, lMsgHeader), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
+        mSocket->async_read_some(boost::asio::buffer(mHeaderBuffer, mMsgLength), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
             if(!aError)
             {
-                uint32_t lReadBufferSize = me->ConvertTo<int32_t>(me->mBuffer);
-                // Merge 4 bytes into a 32-bit integer                
-                // for (int i = 0; i < 4; ++i) 
-                // {
-                //     std::cout << "Byte " << i << ": 0x" << std::hex << std::uppercase << static_cast<int>(static_cast<unsigned char>(me->mBuffer[i])) << std::endl;
-                //     me->mReadBufferSize = (me->mReadBufferSize << 8) | static_cast<unsigned char>(me->mBuffer[i]);
-                // }
-                std::cout << "Read buffer size: " << std::bitset<32>(lReadBufferSize) << "\n";
-                std::cout << "Read buffer size: " << lReadBufferSize << "\n";   
+                uint32_t const lKeyLength = me->ConvertTo<int32_t>(std::string(me->mHeaderBuffer, me->mKeyHeaderLength));
+                uint32_t const lValueLength = me->ConvertTo<int32_t>(std::string(&me->mHeaderBuffer[me->mKeyHeaderLength], + me->mValueheaderLength));
 
-                me->ReadNoBytes(lReadBufferSize);
+                // std::cout << "Read buffer size: " << std::bitset<32>(lReadBufferSize) << "\n";
+                std::cout << "lKeyLength: " << lKeyLength << "\n";
+                std::cout << "lValueLength: " << lValueLength << "\n";   
+
+                me->ReadNoBytes(lKeyLength, lValueLength);
             }
             else
             {
@@ -71,11 +67,11 @@ public:
         });
     }
 
-    void ReadNoBytes(int32_t aNoBytes)
+    void ReadNoBytes(int32_t const aNBKey, int32_t const aNBValue)
     {
         std::cout << "Connection::ReadNoBytes\n";
-        mReadBuffer.resize(aNoBytes);
-        mSocket->async_read_some(boost::asio::buffer(mReadBuffer), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
+        mReadBuffer.resize(aNBKey + aNBValue);
+        mSocket->async_read_some(boost::asio::buffer(mReadBuffer), [aNBKey, aNBValue, me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
             if(!aError)
             {
                 std::cout << "Read " << aBytesTransferred << " bytes from client.\n";                
@@ -83,8 +79,10 @@ public:
                 {
                     std::cout << "Byte " << i << ": 0x" << std::hex << std::uppercase << static_cast<int>(static_cast<unsigned char>(me->mReadBuffer[i])) << std::endl;
                 }
-            
-                std::cout << "Message from client : " << std::string(me->mReadBuffer.begin(), me->mReadBuffer.end()) << "\n";
+
+                std::string const lKey{me->mReadBuffer.begin(), me->mReadBuffer.begin() + aNBKey};
+                std::string const lValue{me->mReadBuffer.begin(), me->mReadBuffer.begin() + aNBValue};
+                std::cout << "Key : " << lKey << " , " << " Value : " << lValue << "\n";
                 me->Response<ResponseType::OK>();
 
                 
@@ -125,11 +123,11 @@ private:
     const std::string lRespNOK = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
     boost::asio::io_context& mIOContext;
     std::shared_ptr<tcp::socket> mSocket;
-    boost::asio::streambuf mStreamBuffer;
+    boost::asio::streambuf mStreamHeaderBuffer;
     static constexpr int mKeyHeaderLength {4};
     static constexpr int mValueheaderLength {4};
-    static constexpr int mMsgHeader {mKeyHeaderLength + mValueheaderLength};
-    char mBuffer[mMsgHeader];
+    static constexpr int mMsgLength {mKeyHeaderLength + mValueheaderLength};
+    char mHeaderBuffer[mMsgLength];
     std::vector<char> mReadBuffer;
 };
 
