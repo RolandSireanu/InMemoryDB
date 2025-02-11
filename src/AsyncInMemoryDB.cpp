@@ -10,6 +10,9 @@
 
 using boost::asio::ip::tcp;
 
+std::unordered_map<std::string, std::string> gInMemoryDB;
+
+
 class Connection : public std::enable_shared_from_this<Connection>
 {
     enum class ResponseType
@@ -20,32 +23,6 @@ class Connection : public std::enable_shared_from_this<Connection>
 
 public:
     Connection(boost::asio::io_context& aIOContext) : mIOContext {aIOContext}, mSocket{std::make_shared<tcp::socket>(mIOContext)}  {}
-
-    std::string ExtractPayload(boost::asio::streambuf& aStreamBuffer)
-    {
-        std::istream lIstream (&aStreamBuffer);
-        std::string lMessage;
-        lMessage.assign((std::istreambuf_iterator<char>(lIstream)), std::istreambuf_iterator<char>());
-        
-        auto posStart = lMessage.find("<start>");
-        posStart += 7;
-        if(posStart == std::string::npos)
-        {
-            std::cerr << "Invalid message format\n";
-            return "";
-        }
-
-        auto posEnd = lMessage.find("<end>");
-        if(posEnd == std::string::npos)
-        {
-            std::cerr << "Invalid message format\n";
-            return "";
-        }
-        posEnd = posEnd - posStart;
-
-        // return lMessage.substr(posStart, posEnd);   // RVO
-        return lMessage;
-    }
 
     template<ResponseType RT>
     void Response()
@@ -70,7 +47,7 @@ public:
 
     void ReadMsgLength() 
     {
-        constexpr int lMsgHeader {4};
+        
         std::cout << "Connection::ReadMsgLength\n";
         mSocket->async_read_some(boost::asio::buffer(mBuffer, lMsgHeader), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
             if(!aError)
@@ -108,8 +85,9 @@ public:
                 }
             
                 std::cout << "Message from client : " << std::string(me->mReadBuffer.begin(), me->mReadBuffer.end()) << "\n";
-
                 me->Response<ResponseType::OK>();
+
+                
             }
             else
             {
@@ -148,7 +126,10 @@ private:
     boost::asio::io_context& mIOContext;
     std::shared_ptr<tcp::socket> mSocket;
     boost::asio::streambuf mStreamBuffer;
-    char mBuffer[4];
+    static constexpr int mKeyHeaderLength {4};
+    static constexpr int mValueheaderLength {4};
+    static constexpr int mMsgHeader {mKeyHeaderLength + mValueheaderLength};
+    char mBuffer[mMsgHeader];
     std::vector<char> mReadBuffer;
 };
 
