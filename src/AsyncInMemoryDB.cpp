@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <concepts>
 #include <bitset>
+#include <optional>
+#include <variant>
 
 using boost::asio::ip::tcp;
 
@@ -41,24 +43,57 @@ using boost::asio::ip::tcp;
 //     std::unordered_map<std::string, std::string> mInMemoryDB;
 // };
 
+template<typename T>
+void printMap(const T& arg)
+{
+    std::cout << " ======" << "================= \n";
+    for(const auto& [k,v] : arg)
+    {
+        std::cout << k << " : " << v << "\n";
+    }
+    std::cout << "\n";
+    std::cout << " ======================= \n";
+}
+
+
+
 class InMemoryDB
 {
 public:
-    bool ProcessRequest(const std::string& aKey, const std::string& aValue)
-    {
-        mInMemoryDB[aKey] = aValue;
+    std::variant<bool, std::string> SetRequest(const std::string& aKey, const std::string& aValue)
+    {        
+        try
+        {
+            mDB[aKey] = aValue;
+            printMap(mDB);
+            return true;
+        }
+        catch(const std::exception& e)
+        {
+            std::cerr << "Error setting key-value pair in DB: " << e.what() << "\n";
+            return std::string(e.what());
+        }        
     }
 
-    const std::string& ProcessRequest(const std::string& aKey)
+    std::optional<std::string> GetRequest(const std::string& aKey)
     {
-        return mInMemoryDB[aKey];
+        printMap(mDB);
+
+        std::cout << "Searching for key :" << aKey << "\n";
+        if(mDB.contains(aKey) == false)
+        {
+            std::cout << "Key not found in DB return nullopt\n";
+            return std::nullopt;
+        }
+        std::cout << "Key found in DB return " << mDB[aKey] << "\n";
+        return mDB[aKey];
     }
 
 private:
-    std::unordered_map<std::string, std::string> mInMemoryDB;
+    std::unordered_map<std::string, std::string> mDB;
 };
 
-
+InMemoryDB gInMemoryDB;
 
 class Connection : public std::enable_shared_from_this<Connection>
 {
@@ -78,7 +113,7 @@ public:
         std::string lResp {};
         if constexpr(RT == ResponseType::OK)
             lResp = "[OK] : ";
-        else if constexpr (RT == ResponseType::NOK)
+        else if constexpr (RT == ResponseType::ERROR)
             lResp = "[NOK] : ";
         
         lResp += aMessage;
@@ -127,7 +162,6 @@ public:
         std::cout << "Connection::ReadNoBytes\n";
         mReadBuffer.resize(aNBKey + aNBValue);
         mSocket->async_read_some(boost::asio::buffer(mReadBuffer), [aNBKey, aNBValue, me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
-
             if(aError)
             {
                 std::cerr << "Error reading from client: " << aError.message() << "\n";
@@ -145,14 +179,28 @@ public:
                 std::cout << "Key : " << lKey << " , " << " Value : " << lValue << "\n";
                 if(lValue.empty())
                 {
-                    
-                    const std::string& lTempValue = me->mInMemoryDB.ProcessRequest(lKey);
-                    me->Response<ResponseType::MESSAGE>(lTempValue);
+                    std::optional<std::string> lTempValue = gInMemoryDB.GetRequest(lKey);
+                    if(lTempValue.has_value() == false)
+                    {
+                        me->Response<ResponseType::ERROR>("Key not found in DB.");
+                    }
+                    else
+                    {
+                        me->Response<ResponseType::MESSAGE>(lTempValue.value());
+                    }                    
                 }
                 else
                 {
-                    me->mInMemoryDB.ProcessRequest(lKey, lValue);
-                    me->Response<ResponseType::OK>();
+                    auto result = gInMemoryDB.SetRequest(lKey, lValue);
+                    if(std::holds_alternative<std::string>(result))
+                    {
+                        std::string tempString = "Error setting key-value pair in DB." + std::get<std::string>(result);
+                        me->Response<ResponseType::ERROR>(tempString);
+                    }
+                    else
+                    {
+                        me->Response<ResponseType::OK>();
+                    }                        
                 }
             }
         });
@@ -172,7 +220,6 @@ private:
         return temp;
     }
 
-    InMemoryDB mInMemoryDB;
     boost::asio::io_context& mIOContext;
     std::shared_ptr<tcp::socket> mSocket;
     boost::asio::streambuf mStreamHeaderBuffer;
