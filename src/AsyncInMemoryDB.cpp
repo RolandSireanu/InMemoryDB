@@ -6,11 +6,58 @@
 #include <vector>
 #include <ranges>
 #include <iomanip>
+#include <concepts>
 #include <bitset>
 
 using boost::asio::ip::tcp;
 
-std::unordered_map<std::string, std::string> gInMemoryDB;
+// class InMemoryDB
+// {
+//     template<typename ...Args>
+//     auto ProcessRequest(Args&& ...args)
+//     {
+//         static_assert(sizeof...(args) > 0, "At least one argument is required.");
+//         static_assert(sizeof...(args) < 3, "Maximum number of arguments is 2.");
+//         static_assert((std::convertible_to<Args, std::string> && ...), "All arguments must be convertible to std::string.");
+
+//         if constexpr (sizeof...(args) == 2)
+//         {
+//             const auto& [lKey, lValue] = std::forward_as_tuple(args...);
+//             mInMemoryDB[lKey] = lValue;
+//         }
+//         else if constexpr(sizeof...(args) == 1)
+//         {
+//             const std::string& lKey = std::get<0>(std::forward_as_tuple(args...));
+//             return mInMemoryDB[lKey];
+//         }
+//     }
+
+//     const std::string& ProcessRequest(const std::string& aKey)
+//     {
+//         return mInMemoryDB[aKey];
+//     }
+
+// private:
+//     std::unordered_map<std::string, std::string> mInMemoryDB;
+// };
+
+class InMemoryDB
+{
+public:
+    bool ProcessRequest(const std::string& aKey, const std::string& aValue)
+    {
+        mInMemoryDB[aKey] = aValue;
+    }
+
+    const std::string& ProcessRequest(const std::string& aKey)
+    {
+        return mInMemoryDB[aKey];
+    }
+
+private:
+    std::unordered_map<std::string, std::string> mInMemoryDB;
+};
+
 
 
 class Connection : public std::enable_shared_from_this<Connection>
@@ -18,20 +65,23 @@ class Connection : public std::enable_shared_from_this<Connection>
     enum class ResponseType
     {
         OK,
-        ERROR
+        ERROR,
+        MESSAGE
     };
 
 public:
     Connection(boost::asio::io_context& aIOContext) : mIOContext {aIOContext}, mSocket{std::make_shared<tcp::socket>(mIOContext)}  {}
 
     template<ResponseType RT>
-    void Response()
+    void Response(const std::string& aMessage = {"Operation completed."})
     {
-        std::string lResp;
+        std::string lResp {};
         if constexpr(RT == ResponseType::OK)
-            lResp = lRespOK;
-        else
-            lResp = lRespNOK;
+            lResp = "[OK] : ";
+        else if constexpr (RT == ResponseType::NOK)
+            lResp = "[NOK] : ";
+        
+        lResp += aMessage;
             
         boost::asio::async_write(*mSocket.get(), boost::asio::buffer(lResp), [](const boost::system::error_code& aError, size_t aBytesTransferred){
             if(!aError)
@@ -42,27 +92,32 @@ public:
             {
                 std::cerr << "Error sending response to client: " << aError.message() << "\n";
             }
-        }); 
+        });
     }
 
     void ReadMsgLength() 
     {
         std::cout << "Connection::ReadMsgLength\n";
-        mSocket->async_read_some(boost::asio::buffer(mHeaderBuffer, mMsgLength), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
-            if(!aError)
+        mSocket->async_read_some(boost::asio::buffer(mHeaderBuffer, mMsgHeaderLength), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
+            if(aError)
             {
-                uint32_t const lKeyLength = me->ConvertTo<int32_t>(std::string(me->mHeaderBuffer, me->mKeyHeaderLength));
-                uint32_t const lValueLength = me->ConvertTo<int32_t>(std::string(&me->mHeaderBuffer[me->mKeyHeaderLength], + me->mValueheaderLength));
-
-                // std::cout << "Read buffer size: " << std::bitset<32>(lReadBufferSize) << "\n";
-                std::cout << "lKeyLength: " << lKeyLength << "\n";
-                std::cout << "lValueLength: " << lValueLength << "\n";   
-
-                me->ReadNoBytes(lKeyLength, lValueLength);
+                std::cerr << "Error reading from client: " << aError.message() << "\n";
+                me->Response<ResponseType::ERROR>("Error reading from client" + aError.message());
+            }
+            else if(aBytesTransferred != me->mMsgHeaderLength)
+            {
+                std::cerr << "Invalid message: " << me->mMsgHeaderLength << " bytes expected, but only " << aBytesTransferred << " bytes received.\n";
+                me->Response<ResponseType::ERROR>("Wrong number of bytes received");
             }
             else
             {
-                std::cerr << "Error reading from client: " << aError.message() << "\n";
+                uint32_t const lKeyLength = me->ConvertTo<int32_t>(std::string(me->mHeaderBuffer, me->mKeyHeaderLength));
+                uint32_t const lValueLength = me->ConvertTo<int32_t>(std::string(&me->mHeaderBuffer[me->mKeyHeaderLength], + me->mValueheaderLength));
+                
+                std::cout << "lKeyLength: " << lKeyLength << "\n";
+                std::cout << "lValueLength: " << lValueLength << "\n";
+
+                me->ReadNoBytes(lKeyLength, lValueLength);
             }
         });
     }
@@ -72,25 +127,33 @@ public:
         std::cout << "Connection::ReadNoBytes\n";
         mReadBuffer.resize(aNBKey + aNBValue);
         mSocket->async_read_some(boost::asio::buffer(mReadBuffer), [aNBKey, aNBValue, me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
-            if(!aError)
+
+            if(aError)
             {
-                std::cout << "Read " << aBytesTransferred << " bytes from client.\n";                
-                for (int i = 0; i < aBytesTransferred; ++i) 
-                {
-                    std::cout << "Byte " << i << ": 0x" << std::hex << std::uppercase << static_cast<int>(static_cast<unsigned char>(me->mReadBuffer[i])) << std::endl;
-                }
-
-                std::string const lKey{me->mReadBuffer.begin(), me->mReadBuffer.begin() + aNBKey};
-                std::string const lValue{me->mReadBuffer.begin(), me->mReadBuffer.begin() + aNBValue};
-                std::cout << "Key : " << lKey << " , " << " Value : " << lValue << "\n";
-                me->Response<ResponseType::OK>();
-
-                
+                std::cerr << "Error reading from client: " << aError.message() << "\n";
+                me->Response<ResponseType::ERROR>("Error reading from client" + aError.message());
+            }
+            else if(aBytesTransferred != (aNBKey + aNBValue))
+            {
+                std::cerr << "Invalid message: " << (aNBKey + aNBValue) << " bytes expected, but " << aBytesTransferred << " bytes received.\n";
+                me->Response<ResponseType::ERROR>("Wrong number of bytes received");
             }
             else
             {
-                std::cerr << "Error reading from client: " << aError.message() << "\n";
-                me->Response<ResponseType::ERROR>();
+                std::string const lKey{me->mReadBuffer.begin(), me->mReadBuffer.begin() + aNBKey};
+                std::string const lValue{me->mReadBuffer.begin() + aNBKey, me->mReadBuffer.end()};
+                std::cout << "Key : " << lKey << " , " << " Value : " << lValue << "\n";
+                if(lValue.empty())
+                {
+                    
+                    const std::string& lTempValue = me->mInMemoryDB.ProcessRequest(lKey);
+                    me->Response<ResponseType::MESSAGE>(lTempValue);
+                }
+                else
+                {
+                    me->mInMemoryDB.ProcessRequest(lKey, lValue);
+                    me->Response<ResponseType::OK>();
+                }
             }
         });
     }
@@ -99,15 +162,6 @@ public:
 
 
 private:
-
-    // template <class T>
-    // T ConvTo(const std::string& argInString)
-    // {
-    //     T lOutValue;
-    //     std::stringstream lStringStream(argInString);
-    //     lStringStream >> lOutValue;
-    //     return lOutValue;
-    // }
 
     template<typename T>
     T ConvertTo(const std::string& argInputString)
@@ -118,16 +172,14 @@ private:
         return temp;
     }
 
-
-    const std::string lRespOK = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-    const std::string lRespNOK = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
+    InMemoryDB mInMemoryDB;
     boost::asio::io_context& mIOContext;
     std::shared_ptr<tcp::socket> mSocket;
     boost::asio::streambuf mStreamHeaderBuffer;
     static constexpr int mKeyHeaderLength {4};
     static constexpr int mValueheaderLength {4};
-    static constexpr int mMsgLength {mKeyHeaderLength + mValueheaderLength};
-    char mHeaderBuffer[mMsgLength];
+    static constexpr int mMsgHeaderLength {mKeyHeaderLength + mValueheaderLength};
+    char mHeaderBuffer[mMsgHeaderLength];
     std::vector<char> mReadBuffer;
 };
 
