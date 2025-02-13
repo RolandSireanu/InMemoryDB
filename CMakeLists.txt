@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Include also *.cc files in SOURCE
 file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.cc")
+set (SOURCES ${SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/include/format.pb.cc)
 
 include(FetchContent)
 
@@ -32,7 +33,7 @@ add_custom_target(build_protocol
 
 # Your executable or library
 add_executable(${PROJECT_NAME} ${SOURCES})  # Replace with your source file
-
+add_dependencies(build_protocol protoc)
 add_dependencies(${PROJECT_NAME} build_protocol)
 
 # Link against the necessary libraries
@@ -40,6 +41,7 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
     Boost::asio             # Linking Boost.Asio
     protobuf::libprotobuf   # Linking Protocol Buffers
+    ${Protobuf_LIBRARIES}
 )
 
 # Ensure to find and link Boost dependencies
@@ -49,4 +51,5 @@ target_link_libraries(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME}
     PRIVATE
     ${Boost_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/include
 )

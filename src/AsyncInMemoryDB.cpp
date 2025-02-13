@@ -282,7 +282,11 @@ private:
 
 
 int main() {
-    GOOGLE_PROTOBUF_VERIFY_VERSION;
+    // GOOGLE_PROTOBUF_VERIFY_VERSION;
+
+    pkg::Payload lPayload {};
+    lPayload.set_key("Hello");
+    lPayload.set_value("World");
 
     try {
         Server lServer{12345};
