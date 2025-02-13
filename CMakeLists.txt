@@ -4,7 +4,8 @@ project(InMemoryDB)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+# Include also *.cc files in SOURCE
+file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.cc")
 
 include(FetchContent)
 
@@ -19,14 +20,20 @@ FetchContent_Declare(
 FetchContent_Declare(
     protobuf
     GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
-    GIT_TAG        v21.12  # Use the latest stable version or a specific one
+    GIT_TAG        main  # Use the latest stable version or a specific one
 )
 
 # Make sure to fetch the contents
 FetchContent_MakeAvailable(boost protobuf)
 
+add_custom_target(build_protocol
+    COMMAND ${protobuf_BINARY_DIR}/protoc --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/include  --cpp_out=${CMAKE_CURRENT_SOURCE_DIR}/include format.proto
+)
+
 # Your executable or library
 add_executable(${PROJECT_NAME} ${SOURCES})  # Replace with your source file
+
+add_dependencies(${PROJECT_NAME} build_protocol)
 
 # Link against the necessary libraries
 target_link_libraries(${PROJECT_NAME}

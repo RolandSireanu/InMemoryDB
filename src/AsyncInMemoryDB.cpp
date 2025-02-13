@@ -10,6 +10,7 @@
 #include <bitset>
 #include <optional>
 #include <variant>
+#include "format.pb.h"
 
 using boost::asio::ip::tcp;
 
@@ -281,6 +282,8 @@ private:
 
 
 int main() {
+    GOOGLE_PROTOBUF_VERIFY_VERSION;
+
     try {
         Server lServer{12345};
         lServer.Run();
@@ -289,5 +292,7 @@ int main() {
     }
 
     std::cout << "Exiting...\n";
+    google::protobuf::ShutdownProtobufLibrary();
+
     return 0;
 }
