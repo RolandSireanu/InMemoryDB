@@ -147,36 +147,43 @@ public:
             }
             else
             {
-                uint32_t const lKeyLength = me->ConvertTo<int32_t>(std::string(me->mHeaderBuffer, me->mKeyHeaderLength));
-                uint32_t const lValueLength = me->ConvertTo<int32_t>(std::string(&me->mHeaderBuffer[me->mKeyHeaderLength], + me->mValueheaderLength));
+                // uint32_t const lKeyLength = me->ConvertTo<int32_t>(std::string(me->mHeaderBuffer, me->mKeyHeaderLength));
+                // uint32_t const lValueLength = me->ConvertTo<int32_t>(std::string(&me->mHeaderBuffer[me->mKeyHeaderLength], + me->mValueheaderLength));
                 
-                std::cout << "lKeyLength: " << lKeyLength << "\n";
-                std::cout << "lValueLength: " << lValueLength << "\n";
+                uint32_t const lMsgLength = me->ConvertTo<uint32_t>(std::string(me->mHeaderBuffer));
 
-                me->ReadNoBytes(lKeyLength, lValueLength);
+                // std::cout << "lKeyLength: " << lKeyLength << "\n";
+                // std::cout << "lValueLength: " << lValueLength << "\n";
+
+                me->ReadNoBytes(lMsgLength);
             }
         });
     }
 
-    void ReadNoBytes(int32_t const aNBKey, int32_t const aNBValue)
+    void ReadNoBytes(uint32_t aMsgLength)
     {
         std::cout << "Connection::ReadNoBytes\n";
-        mReadBuffer.resize(aNBKey + aNBValue);
-        mSocket->async_read_some(boost::asio::buffer(mReadBuffer), [aNBKey, aNBValue, me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
+
+        mReadBuffer.resize(aMsgLength);
+        mSocket->async_read_some(boost::asio::buffer(mReadBuffer), [aMsgLength, me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
             if(aError)
             {
                 std::cerr << "Error reading from client: " << aError.message() << "\n";
                 me->Response<ResponseType::ERROR>("Error reading from client" + aError.message());
             }
-            else if(aBytesTransferred != (aNBKey + aNBValue))
+            else if(aBytesTransferred != (aMsgLength))
             {
-                std::cerr << "Invalid message: " << (aNBKey + aNBValue) << " bytes expected, but " << aBytesTransferred << " bytes received.\n";
+                std::cerr << "Invalid message: " << (aMsgLength) << " bytes expected, but " << aBytesTransferred << " bytes received.\n";
                 me->Response<ResponseType::ERROR>("Wrong number of bytes received");
             }
             else
             {
-                std::string const lKey{me->mReadBuffer.begin(), me->mReadBuffer.begin() + aNBKey};
-                std::string const lValue{me->mReadBuffer.begin() + aNBKey, me->mReadBuffer.end()};
+                pkg::Payload lPayload {};
+                std::string lMessage (me->mReadBuffer.begin(), me->mReadBuffer.end());
+                lPayload.ParseFromString(lMessage);
+
+                std::string const lKey = lPayload.key();
+                std::string const lValue = lPayload.value();
                 std::cout << "Key : " << lKey << " , " << " Value : " << lValue << "\n";
                 if(lValue.empty())
                 {
@@ -224,9 +231,7 @@ private:
     boost::asio::io_context& mIOContext;
     std::shared_ptr<tcp::socket> mSocket;
     boost::asio::streambuf mStreamHeaderBuffer;
-    static constexpr int mKeyHeaderLength {4};
-    static constexpr int mValueheaderLength {4};
-    static constexpr int mMsgHeaderLength {mKeyHeaderLength + mValueheaderLength};
+    static constexpr int mMsgHeaderLength {8};
     char mHeaderBuffer[mMsgHeaderLength];
     std::vector<char> mReadBuffer;
 };
@@ -282,12 +287,6 @@ private:
 
 
 int main() {
-    // GOOGLE_PROTOBUF_VERIFY_VERSION;
-
-    pkg::Payload lPayload {};
-    lPayload.set_key("Hello");
-    lPayload.set_value("World");
-
     try {
         Server lServer{12345};
         lServer.Run();
