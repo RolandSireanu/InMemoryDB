@@ -14,50 +14,6 @@
 
 using boost::asio::ip::tcp;
 
-// class InMemoryDB
-// {
-//     template<typename ...Args>
-//     auto ProcessRequest(Args&& ...args)
-//     {
-//         static_assert(sizeof...(args) > 0, "At least one argument is required.");
-//         static_assert(sizeof...(args) < 3, "Maximum number of arguments is 2.");
-//         static_assert((std::convertible_to<Args, std::string> && ...), "All arguments must be convertible to std::string.");
-
-//         if constexpr (sizeof...(args) == 2)
-//         {
-//             const auto& [lKey, lValue] = std::forward_as_tuple(args...);
-//             mInMemoryDB[lKey] = lValue;
-//         }
-//         else if constexpr(sizeof...(args) == 1)
-//         {
-//             const std::string& lKey = std::get<0>(std::forward_as_tuple(args...));
-//             return mInMemoryDB[lKey];
-//         }
-//     }
-
-//     const std::string& ProcessRequest(const std::string& aKey)
-//     {
-//         return mInMemoryDB[aKey];
-//     }
-
-// private:
-//     std::unordered_map<std::string, std::string> mInMemoryDB;
-// };
-
-template<typename T>
-void printMap(const T& arg)
-{
-    std::cout << " ======" << "================= \n";
-    for(const auto& [k,v] : arg)
-    {
-        std::cout << k << " : " << v << "\n";
-    }
-    std::cout << "\n";
-    std::cout << " ======================= \n";
-}
-
-
-
 class InMemoryDB
 {
 public:
@@ -66,7 +22,6 @@ public:
         try
         {
             mDB[aKey] = aValue;
-            printMap(mDB);
             return true;
         }
         catch(const std::exception& e)
@@ -78,8 +33,6 @@ public:
 
     std::optional<std::string> GetRequest(const std::string& aKey)
     {
-        printMap(mDB);
-
         std::cout << "Searching for key :" << aKey << "\n";
         if(mDB.contains(aKey) == false)
         {
@@ -133,7 +86,7 @@ public:
 
     void ReadMsgLength() 
     {
-        std::cout << "Connection::ReadMsgLength\n";
+        std::cout << "Connection::ReadMsgLength " << std::this_thread::get_id() <<"\n";
         mSocket->async_read_some(boost::asio::buffer(mHeaderBuffer, mMsgHeaderLength), [me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
             if(aError)
             {
@@ -147,14 +100,7 @@ public:
             }
             else
             {
-                // uint32_t const lKeyLength = me->ConvertTo<int32_t>(std::string(me->mHeaderBuffer, me->mKeyHeaderLength));
-                // uint32_t const lValueLength = me->ConvertTo<int32_t>(std::string(&me->mHeaderBuffer[me->mKeyHeaderLength], + me->mValueheaderLength));
-                
                 uint32_t const lMsgLength = me->ConvertTo<uint32_t>(std::string(me->mHeaderBuffer));
-
-                // std::cout << "lKeyLength: " << lKeyLength << "\n";
-                // std::cout << "lValueLength: " << lValueLength << "\n";
-
                 me->ReadNoBytes(lMsgLength);
             }
         });
@@ -162,7 +108,7 @@ public:
 
     void ReadNoBytes(uint32_t aMsgLength)
     {
-        std::cout << "Connection::ReadNoBytes\n";
+        std::cout << "Connection::ReadNoBytes" << std::this_thread::get_id() <<"\n";
 
         mReadBuffer.resize(aMsgLength);
         mSocket->async_read_some(boost::asio::buffer(mReadBuffer), [aMsgLength, me=shared_from_this()](const boost::system::error_code& aError, size_t aBytesTransferred){
@@ -214,11 +160,13 @@ public:
         });
     }
 
-    std::shared_ptr<tcp::socket> GetSocket() { return mSocket; }
+    std::shared_ptr<tcp::socket> GetSocket() 
+    { 
+        return mSocket; 
+    }
 
 
 private:
-
     template<typename T>
     T ConvertTo(const std::string& argInputString)
     {
@@ -239,16 +187,19 @@ private:
 class Server
 {
 public:
-    Server(int32_t aPort, int32_t aNrOfThreads=1) : mAcceptor{mIOContext, tcp::endpoint(tcp::v4(), aPort)}, mNrOfThreads{aNrOfThreads} 
+    Server(int32_t aPort, int32_t aNrOfThreads=1) : mAcceptor{mIOContext, tcp::endpoint(tcp::v4(), aPort)} 
     {
         AcceptConnections();
     }
 
-    void Run()
-    {
-        mThreadPool.emplace_back([this](){
-            mIOContext.run();   
-        });
+    void Run(const int32_t aNrOfThreads=1)
+    {   
+        for(int i = 0; i < aNrOfThreads; ++i)
+        {
+            mThreadPool.emplace_back([this](){
+                mIOContext.run();   
+            });
+        }
 
         for(auto& thread : mThreadPool)
         {
@@ -282,14 +233,15 @@ private:
     boost::asio::io_context mIOContext;
     tcp::acceptor mAcceptor;
     std::vector<std::thread> mThreadPool;
-    const int32_t mNrOfThreads;
 };
 
 
 int main() {
+    std::cout << "Main thread id " << std::this_thread::get_id() << "\n";
     try {
         Server lServer{12345};
-        lServer.Run();
+        const uint32_t lMaxNrOfThreads {std::thread::hardware_concurrency()};
+        lServer.Run(lMaxNrOfThreads);
     } catch (std::exception& e) {
         std::cerr << "Exception: " << e.what() << "\n";
     }

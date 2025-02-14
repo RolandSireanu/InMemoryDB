@@ -5,7 +5,7 @@
 
 using boost::asio::ip::tcp;
 
-std::string encodeHeader(const std::string& aData)
+std::string encodeLength(const std::string& aData)
 {    
     std::string lMsgLength = std::to_string(aData.size());
     const int lNrOfDigits = lMsgLength.size();
@@ -44,7 +44,7 @@ int main(int argc, char* argv[])
     lPayload.set_key("Hello");
     lPayload.set_value("World");
     std::string lData = lPayload.SerializeAsString();
-    socket.write_some(boost::asio::buffer(encodeHeader(lData)));
+    socket.write_some(boost::asio::buffer(encodeLength(lData)));
     // auto result = boost::asio::write(socket, boost::asio::buffer(lData));
     
     // the result represents the size of the sent data
@@ -57,13 +57,3 @@ int main(int argc, char* argv[])
 
     return 0;
 }
-
-
-
-    // boost::asio::io_service lIoService;
-    // Client lClient (lIoService, "127.0.0.1", "12345");
-    // pkg::Payload lPayload {};
-    // lPayload.set_key("Hello");
-    // lPayload.set_value("World");
-    // std::string lTemp = lPayload.SerializeAsString();
-    // lClient.send(lTemp);
